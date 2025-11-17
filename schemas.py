@@ -1,48 +1,85 @@
 """
-Database Schemas
+Database Schemas for SyncZenith (Payroll + HRMS + CRM)
 
-Define your MongoDB collection schemas here using Pydantic models.
-These schemas are used for data validation in your application.
-
-Each Pydantic model represents a collection in your database.
-Model name is converted to lowercase for the collection name:
-- User -> "user" collection
-- Product -> "product" collection
-- BlogPost -> "blogs" collection
+Each Pydantic model maps to a MongoDB collection (lowercased class name).
+Use these schemas for validation when inserting/updating via database helpers.
 """
+from __future__ import annotations
 
-from pydantic import BaseModel, Field
-from typing import Optional
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional, List, Literal
+from datetime import date, datetime
 
-# Example schemas (replace with your own):
-
+# Authentication / Users
 class User(BaseModel):
-    """
-    Users collection schema
-    Collection name: "user" (lowercase of class name)
-    """
-    name: str = Field(..., description="Full name")
-    email: str = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+    email: EmailStr
+    name: str
+    role: Literal["admin", "hr", "employee", "accountant"] = "employee"
+    department: Optional[str] = None
+    password_hash: Optional[str] = Field(None, description="Hashed password")
+    employee_id: Optional[str] = Field(None, description="Link to employee document _id if role is employee")
+    is_active: bool = True
 
-class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
-    title: str = Field(..., description="Product title")
-    description: Optional[str] = Field(None, description="Product description")
-    price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
+# Core domain
+class PayrollProfile(BaseModel):
+    basic: float
+    hra: float
+    ta: float = 0
+    bonus: float = 0
+    epf: float = 0  # percent
+    esi: float = 0  # percent
+    totalCTC: float
 
-# Add your own schemas here:
-# --------------------------------------------------
+class Employee(BaseModel):
+    name: str
+    department: Optional[str] = None
+    email: EmailStr
+    paymentType: Literal["Monthly", "Project", "Hourly"] = "Monthly"
+    payrollProfile: Optional[PayrollProfile] = None
+    status: Literal["Active", "Inactive"] = "Active"
+    source: Literal["HRMS", "Manual"] = "Manual"
 
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+class PayrollEmployeeItem(BaseModel):
+    employee_id: str
+    earnings: float
+    deductions: float
+    net: float
+
+class Payroll(BaseModel):
+    month: date
+    status: Literal["Draft", "Processed", "Sent"] = "Draft"
+    type: Literal["Monthly", "Hourly", "Project-based"] = "Monthly"
+    employees: List[PayrollEmployeeItem] = []
+
+class Payslip(BaseModel):
+    employeeId: str
+    payrollMonth: date
+    grossSalary: float
+    deductions: float
+    netSalary: float
+    pdfPath: Optional[str] = None
+    sent: bool = False
+
+class HRMSConnection(BaseModel):
+    connected: bool = False
+    apiKey: Optional[str] = None
+    lastSync: Optional[datetime] = None
+
+class Attendance(BaseModel):
+    employeeId: str
+    presentDays: int = 0
+    leaveDays: int = 0
+    overtimeHours: float = 0
+
+# Settings / Statutory
+class PayrollSettings(BaseModel):
+    epf_percent: float = 12.0
+    esi_percent: float = 0.75
+    tax_rules: dict = Field(default_factory=dict)
+    payslip_logo_url: Optional[str] = None
+    payslip_header: Optional[str] = "SyncZenith Payslip"
+
+# Reporting helper
+class DateRange(BaseModel):
+    start: date
+    end: date
